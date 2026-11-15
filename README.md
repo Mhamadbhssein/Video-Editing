@@ -74,7 +74,11 @@ tools/run_all.sh render    # 4-5: render + QC
    −1.5 dBTP ceiling using gain only (no limiter, no compression, no pitch change). If the ceiling stops the
    gain short, the shortfall is reported; an oversampled limiter is available only as an opt-in
    (`loudness.max_limiter_db`).
-5. `qc.py` — delivery spec, black/frozen/duplicated frames, unexpected cuts, loudness/true peak,
-   silences, title boxes vs. the Instagram-safe area, plus inspection sheets in `work/qc/`.
+5. `qc.py` — runs on every file render wrote (reel + 4K master; extra reports `work/qc/report_<name>.md`):
+   delivery spec (H.264 level vs size × fps, SPS and container colour tags, CFR, faststart, no edit lists,
+   AAC bitrate floor), single black / flash / stray frames, freezes and stutter (real-frame conforms allowed),
+   cuts off by more than a frame, A/V duration and sync (cross-correlated with the mix, 1 ms tolerance),
+   edge clicks, full-scale samples, loudness vs. the EDL target, music ending inside a phrase, and title
+   boxes vs. the Instagram-safe area; plus inspection sheets in `work/qc/`. Any FAIL exits non-zero.
 
 `tools/color.py` holds the colour science (run it to print its self-checks).
