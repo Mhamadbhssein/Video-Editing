@@ -31,7 +31,7 @@ Pick one:
 | path | what |
 |---|---|
 | `footage/`, `audio/` | your originals (read-only for the tools) |
-| `assets/fonts/` | Amiri, IBM Plex Sans Arabic, Noto Naskh Arabic (+ OFL licences) |
+| `assets/fonts/` | Amiri, IBM Plex Sans Arabic, Noto Naskh Arabic (variable font: libass 0.17 uses only its Regular instance) (+ OFL licences) |
 | `tools/` | the pipeline (Python 3 + numpy + Pillow + FFmpeg; `ffutil.py` = shared filtergraph escaping + exact NTSC rates) |
 | `edit/edl.json` | **the edit** (template: `edit/edl.template.json`), Arabic line candidates in `edit/lines_bank.md` |
 | `output/` | `Madinah_Final_Reel.mp4` (+ `Madinah_Master_2160x3840.mp4` when the footage supports it) |
@@ -49,8 +49,11 @@ tools/run_all.sh render    # 4-5: render + QC
    primaries/transfer/matrix, HLG / PQ (+ MaxCLL / mastering peak) / Dolby Vision detection, audio streams
    → `work/inventory.md`. Git LFS pointer files are reported as such (`git lfs pull`), audio-only files in a
    video container are treated as audio, and the step stops if no readable media is found.
-2. `review.py` — per clip: contact sheet, dense 4 fps filmstrips, 540 px SDR proxy, metrics
-   (exposure, clipped highlights, sharpness, camera speed, jitter) and suggested strongest moments.
+2. `review.py` — per clip (`work/review/<stem>_<hash>/`): contact sheet, dense 4 fps filmstrips, 540 px SDR
+   proxy, metrics (exposure, clipped highlights, sharpness, camera speed, jitter) and suggested strongest
+   moments. Times are real source timestamps on the `src_in` axis (VFR-safe) and frames are picked exactly
+   as the renderer picks them. It exits 1 if a clip fails to decode or comes out all black, and flags
+   Dolby Vision profile 5 clips, whose preview colours are wrong. Needs FFmpeg ≥ 6.1.
 3. `audio_analysis.py` — waveform / spectrogram pages, EBU R128 loudness, tempo + beat grid,
    pauses and phrase spans (never cut inside a recited or sung phrase), energy changes, ranked 30–45 s excerpts.
 4. `render.py` — preflight first (fonts actually used by libass, music length and phrase end, every ambience
