@@ -11,5 +11,20 @@ fi
 if [[ "$step" == all || "$step" == render ]]; then
   [[ -f edit/edl.json ]] || { echo "edit/edl.json missing — write the edit first (see edit/edl.template.json)"; exit 2; }
   python3 tools/render.py --edl edit/edl.json
-  python3 tools/qc.py output/Madinah_Final_Reel.mp4 --edl edit/edl.json
+  # QC every file render.py just wrote (timeline.json "outputs": the reel, then the 4K master if any).
+  # Without that list, qc.py picks its own default (the reel named in the EDL).
+  mapfile -t outs < <(python3 -c '
+import json, sys
+tl = json.load(open("work/render/timeline.json"))
+print("\n".join(o for o in (tl.get("outputs") or []) if o))' || true)
+  rc=0
+  if [[ ${#outs[@]} -eq 0 || -z "${outs[0]}" ]]; then
+    python3 tools/qc.py --edl edit/edl.json || rc=$?
+  else
+    for f in "${outs[@]}"; do
+      [[ -n "$f" ]] || continue
+      python3 tools/qc.py "$f" --edl edit/edl.json || rc=$?
+    done
+  fi
+  exit $rc
 fi
