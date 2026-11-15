@@ -12,11 +12,14 @@
     "saturation": 1.06, "vibrance": 0.12, "skin_protect": 0.7, "black_floor": 0.0004
   },
 
-  "music": {"file": "audio/TRACK.m4a", "in": 0.0, "fade_in": 0.0, "fade_out": 2.5, "gain_db": 0, "fade_curve": "qsin"},
+  "music": {"file": "audio/TRACK.m4a", "in": 0.0, "out": null, "fade_in": 0.0, "fade_out": 2.5, "gain_db": 0, "fade_curve": "qsin", "allow_mid_phrase": false},
+  "_music_doc": "in = sample-accurate start in the track (a phrase start from work/audio/<track>.json). The music runs for the whole reel and ends at in + reel length; render.py stops before rendering if that is past the end of the track, or inside a recited/sung phrase of work/audio/<track>.json (it names the nearest phrase ends; allow_mid_phrase: true turns that into a warning). out (optional) = the planned end point: must equal in + reel length within half a frame. fade_in / fade_out in seconds; 0 = no fade at all.",
   "ambience": [
     {"file": "footage/CLIP.MOV", "src_in": 0.0, "at": 0.0, "dur": 4.0, "gain_db": -20, "fade_in": 0.8, "fade_out": 1.2, "highpass": 90, "lowpass": 14000}
   ],
-  "loudness": {"target_lufs": -14, "true_peak_ceiling": -1.5},
+  "_ambience_doc": "clip sound under the music: src_in..src_in+dur of the clip's audio, placed at 'at' on the reel (sample-accurate). Every source must have an audio track and cover src_in+dur (checked before rendering). fade 0 = no fade.",
+  "loudness": {"target_lufs": -14, "true_peak_ceiling": -1.5, "max_limiter_db": 0},
+  "_loudness_doc": "two-pass gain only (no compression, no limiter): gain is capped so the true peak stays under the ceiling, so very dynamic material can land below the target; the shortfall is written to work/render/loudness.json (tp_limited_shortfall_lu) and warned about from 1 LU. For recitation a quieter target such as -16 is fine. max_limiter_db > 0 opts in to that much extra gain into a transparent 4x-oversampled peak limiter (default 0 = off).",
 
   "shots": [
     {
@@ -31,6 +34,9 @@
       "frame": {"cx": 0.5, "cy": 0.5, "zoom": 1.0, "end": {"zoom": 1.04}, "ease": "inout"},
       "_frame_doc": "9:16 window centre (0-1 of the display-oriented source), zoom >= 1; optional 'end' animates a sub-pixel push/pan",
       "grade": {"exposure": 0.0, "temperature": 0.0, "tint": 0.0, "saturation": 1.0, "contrast": 0.0, "highlights": 0.0, "black_crush": 0.0, "black_lift": 0.0},
+      "hdr_peak_nits": null,
+      "hlg_display_nits": null,
+      "_hdr_doc": "null = automatic. hdr_peak_nits: PQ shots only (HDR10, Dolby Vision 8.1), the content peak (MaxCLL / mastering max) that places the highlight roll-off (default: the clip's peak_nits from inventory, else 1000). hlg_display_nits: HLG shots only, the display peak Lw of the BT.2100 HLG OOTF (default 1000 = BT.2408 reference; lower Lw = lower system gamma, relatively brighter mid-tones).",
       "stabilize": false,
       "_stabilize_doc": "false | {\"smoothing\": 18, \"zoom\": 4} (vid.stab two-pass; zoom % hides borders)",
       "denoise": 0.0,
@@ -42,10 +48,11 @@
 
   "titles": [
     {"text": "المدينة المنوّرة", "style": "title", "start": 0.4, "end": 3.6, "x": 540, "y": 700,
-     "fade_in": 0.9, "fade_out": 0.7, "drift": 10, "blur_from": 3, "blur": 0.6}
+     "fade_in": 0.9, "fade_out": 0.7, "drift": 10, "blur_from": 3, "blur": 0.3}
   ],
+  "_titles_doc": "x,y = centre on the 1080x1920 canvas; drift = px of slow upward drift (0 = static); blur_from -> blur = soft focus-in. Optional per title (defaults come from the style): shadow_alpha / shadow_blur / shadow_bord = the wide soft halo, edge_alpha / edge_blur / edge_bord = the tight contact shadow (alpha 0x00 opaque .. 0xFF off; lower shadow_alpha e.g. 0x70 for a very bright background), shadow_color (RGB hex, default 100C0A). Arabic lines get a leading RLM automatically, so a line starting with a Latin word or digits still reads right-to-left. \\N = line break.",
   "typography": {"styles": {}},
-  "_typography_doc": "styles: title (Amiri Bold), line / small (IBM Plex Sans Arabic Light). Keep text inside x 90-910, y 250-1480 (Instagram UI). Never use \\fsp letter-spacing on Arabic.",
+  "_typography_doc": "styles: title (Amiri Bold 340), line (IBM Plex Sans Arabic Regular 88), small (IBM Plex Sans Arabic Medium 66). Override or add a style with {\"font\", \"size\", \"bold\", \"color\", \"halo\": [bord, blur, alpha], \"edge\": [bord, blur, alpha], \"shadow_color\"}. Only fonts in assets/fonts are allowed: render.py stops if libass would fall back to any other font (mistyped family, emoji, missing glyph). Keep text inside x 90-910, y 250-1480 (Instagram UI). Never use \\fsp letter-spacing on Arabic.",
 
   "end": {"fade_to_black": 0.0},
   "export": {"name": "Madinah_Final_Reel.mp4", "master_name": "Madinah_Master_2160x3840.mp4", "crf": 16, "maxrate": "25M"}
