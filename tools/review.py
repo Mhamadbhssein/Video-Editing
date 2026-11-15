@@ -25,6 +25,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import color as colormod  # noqa: E402
+from ffutil import esc  # noqa: E402
 from mediainfo import REPO, from_rgb_filter, require, to_rgb_filter  # noqa: E402
 
 WORK = REPO / "work"
@@ -52,7 +53,7 @@ def sdr_chain(clip: dict, width: int, height: int | None = None, pix: str = "rgb
     transform = col["transform"] if col["transform"] in ("hlg", "pq") else "sdr709"
     h = height or -2
     chain = [f"scale={width}:{h}:flags=bicubic", to_rgb_filter(col, "gbrpf32le"),
-             f"lut3d=file='{neutral_lut(transform)}':interp=tetrahedral"]
+             f"lut3d=file={esc(neutral_lut(transform))}:interp=tetrahedral"]
     if pix == "rgb24":
         chain.append("format=rgb24")
     else:

@@ -26,7 +26,8 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mediainfo import REPO, ffprobe, require  # noqa: E402
-from render import FONTS, SAFE, esc  # noqa: E402
+from ffutil import esc  # noqa: E402
+from render import FONTS, SAFE  # noqa: E402
 from review import font, tile  # noqa: E402
 
 WORK = REPO / "work"
@@ -87,7 +88,7 @@ def frames_at(path: Path, idx: list[int], w: int, h: int) -> dict[int, np.ndarra
 def per_frame_ydif(path: Path) -> np.ndarray:
     log = QC / "ydif.txt"
     subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-vf",
-                    f"signalstats,metadata=print:key=lavfi.signalstats.YDIF:file='{esc(log)}'",
+                    f"signalstats,metadata=print:key=lavfi.signalstats.YDIF:file={esc(log)}",
                     "-an", "-f", "null", "-"], check=True)
     vals = [float(m) for m in re.findall(r"YDIF=([\d.]+)", log.read_text())]
     return np.array(vals)
@@ -113,7 +114,7 @@ def title_boxes(edl: dict, ass: Path, total: float) -> list[dict]:
                           ("mid", 0.5 * (t["start"] + t["end"])), ("end-fade", t["end"] - t.get("fade_out", 0.7) - 0.05)):
             raw = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
                                   f"color=black:s=1080x1920:r=30:d={total + 1:.2f}", "-vf",
-                                  f"ass='{esc(ass)}':fontsdir='{esc(FONTS)}',trim=start={tt:.3f},setpts=PTS-STARTPTS,format=gray",
+                                  f"ass={esc(ass)}:fontsdir={esc(FONTS)},trim=start={tt:.3f},setpts=PTS-STARTPTS,format=gray",
                                   "-frames:v", "1", "-f", "rawvideo", "-"], stdout=subprocess.PIPE).stdout
             if len(raw) < 1080 * 1920:
                 continue

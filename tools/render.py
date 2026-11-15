@@ -30,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import color as colormod  # noqa: E402
+from ffutil import esc, fps_fraction, fps_rate  # noqa: E402,F401  (esc/fps_rate re-exported for qc.py)
 from mediainfo import REPO, describe, from_rgb_filter, require, to_rgb_filter  # noqa: E402
 
 WORK = REPO / "work"
@@ -56,12 +57,6 @@ def sh(cmd: list[str], log: Path | None = None) -> None:
 def abspath(p: str) -> Path:
     q = Path(p)
     return q if q.is_absolute() else REPO / q
-
-
-def esc(path: Path | str) -> str:
-    """Escape a path for use inside an FFmpeg filtergraph option."""
-    s = str(path)
-    return s.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace(",", "\\,")
 
 
 def even(x: float) -> int:
@@ -209,8 +204,8 @@ def render_segment(r: dict, edl: dict, out_w: int, out_h: int, look: colormod.Lo
         trf = RENDER / "stab" / f"{r['id']}.trf"
         trf.parent.mkdir(parents=True, exist_ok=True)
         sh(pre + ["-vf", f"setpts=PTS-STARTPTS,vidstabdetect=shakiness={stab.get('shakiness', 6)}:accuracy=15:"
-                         f"stepsize=6:mincontrast=0.25:result='{esc(trf)}'", "-an", "-f", "null", "-"])
-        chain.append(f"vidstabtransform=input='{esc(trf)}':smoothing={stab.get('smoothing', 18)}:"
+                         f"stepsize=6:mincontrast=0.25:result={esc(trf)}", "-an", "-f", "null", "-"])
+        chain.append(f"vidstabtransform=input={esc(trf)}:smoothing={stab.get('smoothing', 18)}:"
                      f"optzoom=0:zoom={stab.get('zoom', 4)}:interpol=bicubic:crop=black:relative=1")
 
     chain += reframe_filters(r, out_w, out_h)
@@ -236,7 +231,7 @@ def render_segment(r: dict, edl: dict, out_w: int, out_h: int, look: colormod.Lo
         chain.append(f"cas=strength={min(1.0, shp):.2f}")
     lut = shot_lut(r, look)
     chain += [to_rgb_filter(r["clip"]["video"]["color"], "gbrpf32le"),
-              f"lut3d=file='{esc(lut)}':interp=tetrahedral",
+              f"lut3d=file={esc(lut)}:interp=tetrahedral",
               from_rgb_filter("yuv422p10le"),
               f"trim=end_frame={r['seg_frames']}", "setpts=N/FRAME_RATE/TB"]
     vf = ",".join(chain)
@@ -422,7 +417,7 @@ def assemble(edl: dict, tl: dict, segs: list[Path], ass: Path, audio: Path, out_
         post.append(f"fade=t=out:st={tl['total'] - d:.5f}:d={d:.5f}")
     if (deliver_w, deliver_h) != (out_w, out_h):
         post.append(f"zscale=w={deliver_w}:h={deliver_h}:filter=spline36")
-    post.append(f"ass='{esc(ass)}':fontsdir='{esc(FONTS)}'")
+    post.append(f"ass={esc(ass)}:fontsdir={esc(FONTS)}")
     post.append("zscale=dither=error_diffusion,format=yuv420p")
     post.append("setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv")
     fc.append(f"{acc}{','.join(post)}[vout]")
