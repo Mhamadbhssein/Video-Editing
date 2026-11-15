@@ -346,14 +346,34 @@ def ass_time(t: float) -> str:
     return f"{h}:{m:02d}:{s:05.2f}"
 
 
+RLM = "\u200f"
+ARABIC = re.compile("[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
+
+
+def rtl_lines(text: str) -> str:
+    """Start every line of an Arabic title with U+200F RLM.  Encoding -1 takes the base direction from
+    the first strong character, so «Madinah — المدينة.» would otherwise lay out LTR with the period
+    next to the Arabic; the RLM forces RTL without moving punctuation in pure-Arabic lines."""
+    if not ARABIC.search(text):
+        return text
+    parts = re.split(r"(\\[Nn])", text)          # WrapStyle 2: both \N and \n are hard breaks
+    return "".join(p if i % 2 or p.startswith(RLM) else RLM + p for i, p in enumerate(parts))
+
+
 def build_ass(edl: dict, path: Path) -> Path:
     ty = edl.get("typography", {})
     styles = {
         # libass sizes by ascender+descender; Amiri reserves tall space for stacked marks, so the
         # nominal size is large: 340 -> «المدينة المنوّرة» ~490 px wide on the 1080 canvas.
-        "title": {"font": "Amiri", "size": 340, "bold": 1, "color": "F7F2E8"},
-        "line": {"font": "IBM Plex Sans Arabic Light", "size": 82, "bold": 0, "color": "F4EFE6"},
-        "small": {"font": "IBM Plex Sans Arabic Light", "size": 60, "bold": 0, "color": "EDE6DA"},
+        # line/small use Plex Regular/Medium: Light at 82/60 gave 2-3 px strokes that stayed grey.
+        # halo = wide, soft, low-opacity dark shadow (lifts the text off white marble / daytime sky);
+        # edge = tight contact shadow that keeps the letter shapes crisp.  [bord, blur, alpha 00..FF].
+        "title": {"font": "Amiri", "size": 340, "bold": 1, "color": "F7F2E8",
+                  "halo": [16, 28, 0x90], "edge": [3, 4, 0x50]},
+        "line": {"font": "IBM Plex Sans Arabic", "size": 88, "bold": 0, "color": "F4EFE6",
+                 "halo": [10, 18, 0x90], "edge": [2, 2.5, 0x50]},
+        "small": {"font": "IBM Plex Sans Arabic Medium", "size": 66, "bold": 0, "color": "EDE6DA",
+                  "halo": [9, 16, 0x90], "edge": [2, 2, 0x50]},
     }
     for k, v in (ty.get("styles") or {}).items():
         styles.setdefault(k, {}).update(v)
@@ -369,23 +389,82 @@ def build_ass(edl: dict, path: Path) -> Path:
         text = t["text"]
         if re.search(r"\\fsp", text):
             raise SystemExit("letter-spacing (\\fsp) breaks Arabic joining — remove it")
+        text = rtl_lines(text)
         st = t.get("style", "line")
+        sty = styles.get(st, styles["line"])
         x, y = t.get("x", 540), t.get("y", 760)
         fi, fo = int(t.get("fade_in", 0.8) * 1000), int(t.get("fade_out", 0.7) * 1000)
         drift = t.get("drift", 10)
         dur_ms = int((t["end"] - t["start"]) * 1000)
         move = f"\\move({x},{y + drift},{x},{y - drift * 0.3:.1f},0,{dur_ms})" if drift else f"\\pos({x},{y})"
-        focus = f"\\blur{t.get('blur_from', 3)}\\t(0,{int(fi * 1.2)},\\blur{t.get('blur', 0.6)})"
-        glow_alpha = t.get("shadow_alpha", 0x70)
-        glow = (f"{{{move}\\fad({fi},{fo})\\blur{t.get('shadow_blur', 14)}\\bord{t.get('shadow_bord', 6)}"
-                f"\\3c&H000000&\\alpha&H{glow_alpha:02X}&\\1a&HFF&}}{text}")
+        focus = f"\\blur{t.get('blur_from', 3)}\\t(0,{int(fi * 1.2)},\\blur{t.get('blur', 0.3)})"
+        shade = ass_color(t.get("shadow_color", sty.get("shadow_color", "100C0A")))[4:]   # warm near-black
+        hb, hr, ha = sty.get("halo", styles["line"]["halo"])
+        eb, er, ea = sty.get("edge", styles["line"]["edge"])
+        under = [(t.get("shadow_bord", hb), t.get("shadow_blur", hr), t.get("shadow_alpha", ha)),
+                 (t.get("edge_bord", eb), t.get("edge_blur", er), t.get("edge_alpha", ea))]
         main = f"{{{move}\\fad({fi},{fo}){focus}}}{text}"
         a, b = ass_time(t["start"]), ass_time(t["end"])
-        lines.append(f"Dialogue: 0,{a},{b},{st}_glow,,0,0,0,,{glow}\n")
-        lines.append(f"Dialogue: 1,{a},{b},{st},,0,0,0,,{main}\n")
+        layer = 0
+        for bord, blur, alpha in under:
+            if int(alpha) >= 0xFF or float(bord) <= 0:
+                continue                                    # alpha FF / bord 0 switches a layer off
+            glow = (f"{{{move}\\fad({fi},{fo})\\blur{blur}\\bord{bord}"
+                    f"\\3c&H{shade}&\\alpha&H{int(alpha):02X}&\\1a&HFF&}}{text}")
+            lines.append(f"Dialogue: {layer},{a},{b},{st}_glow,,0,0,0,,{glow}\n")
+            layer += 1
+        lines.append(f"Dialogue: {layer},{a},{b},{st},,0,0,0,,{main}\n")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(lines), encoding="utf-8")
     return path
+
+
+def _ps_names(font: Path) -> set[str]:
+    """PostScript names (name ID 6) of a TrueType/OpenType file — what libass logs as the chosen face."""
+    import struct
+    data = font.read_bytes()
+    names = {font.stem}
+    try:
+        for i in range(struct.unpack(">H", data[4:6])[0]):
+            tag, _, off, _ = struct.unpack(">4sIII", data[12 + 16 * i:28 + 16 * i])
+            if tag != b"name":
+                continue
+            _, count, so = struct.unpack(">HHH", data[off:off + 6])
+            for j in range(count):
+                pid, _, _, nid, ln, o = struct.unpack(">6H", data[off + 6 + 12 * j:off + 18 + 12 * j])
+                if nid == 6:
+                    raw = data[off + so + o:off + so + o + ln]
+                    names.add(raw.decode("utf-16-be" if pid in (0, 3) else "latin-1", "replace"))
+    except struct.error:
+        pass
+    return names
+
+
+def check_fonts(ass: Path) -> None:
+    """Fail loudly when libass would draw any title glyph from a font that is not in assets/fonts
+    (a mistyped family in an EDL override, an emoji, a character our fonts lack): libass reports
+    those fallbacks only at info level, which the -v error assembly never shows."""
+    chk = ass.with_name(ass.stem + ".fontcheck.ass")
+    txt = re.sub(r"^(Dialogue: \d+),[^,]+,[^,]+,", r"\1,0:00:00.00,0:00:02.00,", ass.read_text(encoding="utf-8"),
+                 flags=re.M)
+    chk.write_text(txt, encoding="utf-8")
+    p = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-f", "lavfi", "-i", "color=black:s=1080x1920:r=2:d=2",
+                        "-vf", f"ass={esc(chk)}:fontsdir={esc(FONTS)}", "-f", "null", "-"],
+                       stderr=subprocess.PIPE, text=True)
+    if p.returncode != 0:
+        print(p.stderr[-3000:])
+        raise SystemExit("title font check: ffmpeg/libass failed on the titles")
+    ours = set().union(*(_ps_names(f) for f in FONTS.iterdir() if f.suffix.lower() in (".ttf", ".otf")))
+    picked = set(re.findall(r"fontselect: \((.*?)\) -> (.*?), \d+, (.*)", p.stderr))
+    foreign = sorted({f"({req}) -> {face.strip()}" for req, _, face in picked if face.strip() not in ours})
+    missing = sorted(set(re.findall(r"Glyph (0x[0-9A-Fa-f]+) not found", p.stderr)))
+    chars = " ".join(f"U+{int(g, 16):04X} '{chr(int(g, 16))}'" for g in missing)
+    if foreign:
+        raise SystemExit(f"title fonts: libass fell back to fonts outside assets/fonts: {foreign}"
+                         + (f"; glyphs missing from the style's font: {chars}" if chars else "")
+                         + " — fix the family name in typography.styles or remove the character")
+    if missing:
+        print(f"  ! title fonts: {chars} missing from the style's font; drawn with another bundled face")
 
 
 # ------------------------------------------------------------------ audio
@@ -403,35 +482,52 @@ def measure(path: Path) -> dict:
     return parse_ebur128(p.stderr)
 
 
-def render_audio(edl: dict, total: float) -> Path:
+def render_audio(edl: dict, total: float, check: bool = True) -> Path:
+    if check:
+        check_audio(edl, total)
     a = edl.get("music")
     amb = edl.get("ambience", [])
     raw = RENDER / "mix_raw.wav"
     final = RENDER / "mix.wav"
+    RENDER.mkdir(parents=True, exist_ok=True)
     inputs, labels, fc = [], [], []
     k = 0
+
+    def excerpt(src: Path, t_in: float, dur: float) -> list[str]:
+        """Sample-accurate excerpt.  Seeking straight to the in-point starts the AAC/MP3 decoder cold
+        (no MDCT overlap, no bit reservoir), which zeroes or smears the first 2-38 ms: the first syllable.
+        So decoding starts >= 1 s earlier, on a 40 ms grid (a whole number of samples at every common
+        rate, which keeps the 48 kHz resampler phase identical to a full decode), and the excerpt is cut
+        by sample count after resampling."""
+        t0 = max(0.0, math.floor((t_in - 1.0) * 25) / 25)
+        n0 = int(round((t_in - t0) * 48000))
+        inputs.extend((["-ss", f"{t0:.6f}"] if t0 > 0 else []) +
+                      ["-t", f"{t_in - t0 + dur + 0.1:.6f}", "-i", str(src)])
+        return ["aresample=48000", f"atrim=start_sample={n0}:end_sample={n0 + int(round(dur * 48000))}",
+                "asetpts=PTS-STARTPTS", "aformat=sample_fmts=fltp:channel_layouts=stereo"]
+
+    def fade(kind: str, st: float, d: float, curve: str) -> list[str]:
+        # afade ignores d=0 and falls back to 44100 samples, so a zero-length fade means no filter at all
+        return [f"afade=t={kind}:st={st:.4f}:d={d:.4f}:curve={curve}"] if d > 0 else []
+
     if a:
         m_in = float(a.get("in", 0.0))
-        fo = float(a.get("fade_out", 2.0))
-        fi = float(a.get("fade_in", 0.0))
-        inputs += ["-ss", f"{m_in:.4f}", "-t", f"{total + 0.1:.4f}", "-i", str(abspath(a["file"]))]
-        chain = [f"aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=stereo",
-                 f"volume={a.get('gain_db', 0)}dB"]
-        if fi > 0:
-            chain.append(f"afade=t=in:st=0:d={fi}:curve=qsin")
-        chain.append(f"afade=t=out:st={max(0.0, total - fo):.4f}:d={fo}:curve={a.get('fade_curve', 'qsin')}")
+        fo = min(max(0.0, float(a.get("fade_out", 2.0))), total)
+        fi = min(max(0.0, float(a.get("fade_in", 0.0))), total)
+        chain = excerpt(abspath(a["file"]), m_in, total) + [f"volume={a.get('gain_db', 0)}dB"]
+        chain += fade("in", 0.0, fi, "qsin") + fade("out", total - fo, fo, a.get("fade_curve", "qsin"))
         fc.append(f"[{k}:a]{','.join(chain)}[m{k}]")
         labels.append(f"[m{k}]")
         k += 1
     for amb_i in amb:
         d = float(amb_i["dur"])
-        inputs += ["-ss", f"{float(amb_i.get('src_in', 0)):.4f}", "-t", f"{d:.4f}", "-i", str(abspath(amb_i["file"]))]
-        chain = ["aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=stereo",
-                 f"highpass=f={amb_i.get('highpass', 90)}", f"lowpass=f={amb_i.get('lowpass', 14000)}",
-                 f"volume={amb_i.get('gain_db', -18)}dB",
-                 f"afade=t=in:st=0:d={amb_i.get('fade_in', 0.8)}:curve=qsin",
-                 f"afade=t=out:st={max(0.0, d - amb_i.get('fade_out', 1.2)):.4f}:d={amb_i.get('fade_out', 1.2)}:curve=qsin",
-                 f"adelay={int(float(amb_i.get('at', 0)) * 1000)}:all=1"]
+        afi = min(max(0.0, float(amb_i.get("fade_in", 0.8))), d)
+        afo = min(max(0.0, float(amb_i.get("fade_out", 1.2))), d)
+        chain = excerpt(abspath(amb_i["file"]), float(amb_i.get("src_in", 0)), d)
+        chain += [f"highpass=f={amb_i.get('highpass', 90)}", f"lowpass=f={amb_i.get('lowpass', 14000)}",
+                  f"volume={amb_i.get('gain_db', -18)}dB"]
+        chain += fade("in", 0.0, afi, "qsin") + fade("out", d - afo, afo, "qsin")
+        chain.append(f"adelay={int(round(float(amb_i.get('at', 0)) * 48000))}S:all=1")
         fc.append(f"[{k}:a]{','.join(chain)}[m{k}]")
         labels.append(f"[m{k}]")
         k += 1
@@ -444,18 +540,137 @@ def render_audio(edl: dict, total: float) -> Path:
     sh(["ffmpeg", "-v", "error", "-y"] + inputs + ["-filter_complex", ";".join(fc), "-map", "[mix]",
                                                    "-c:a", "pcm_f32le", str(raw)])
     m = measure(raw)
-    target = float(edl.get("loudness", {}).get("target_lufs", -14.0))
-    ceiling = float(edl.get("loudness", {}).get("true_peak_ceiling", -1.5))
-    gain = target - (m["I"] if m["I"] is not None else target)
+    lo = edl.get("loudness") or {}
+    target = float(lo.get("target_lufs", -14.0))
+    ceiling = float(lo.get("true_peak_ceiling", -1.5))
+    max_lim = max(0.0, float(lo.get("max_limiter_db", 0) or 0))
+    want = target - (m["I"] if m["I"] is not None else target)
+    gain = want
     if m["TP"] is not None and m["TP"] + gain > ceiling:
         gain = ceiling - m["TP"]
-    sh(["ffmpeg", "-v", "error", "-y", "-i", str(raw), "-af", f"volume={gain:.3f}dB", "-c:a", "pcm_s24le",
-        str(final)])
+    tp_limited = gain < want - 0.01
+    # Opt-in only (default off: the brief asks for no compression): up to max_limiter_db more gain into a
+    # 4x-oversampled look-ahead peak limiter that only touches the peaks above the ceiling.
+    extra = min(max_lim, want - gain) if tp_limited else 0.0
+    af = f"volume={gain + extra:.3f}dB"
+    if extra > 0:
+        af += (",aresample=192000:resampler=soxr,"
+               f"alimiter=limit={10 ** ((ceiling - 0.5) / 20):.5f}:attack=1:release=60:level=false:latency=true,"
+               "aresample=48000:resampler=soxr")
+    sh(["ffmpeg", "-v", "error", "-y", "-i", str(raw), "-af", af, "-c:a", "pcm_s24le", str(final)])
     after = measure(final)
-    (RENDER / "loudness.json").write_text(json.dumps({"before": m, "gain_db": round(gain, 2), "after": after,
-                                                       "target": target, "ceiling": ceiling}, indent=1))
-    print(f"  audio: {m} -> gain {gain:+.2f} dB -> {after}")
+    trim = 0.0
+    if extra > 0 and after["TP"] is not None and after["TP"] > ceiling:
+        trim = ceiling - after["TP"]                       # one more pass, gain only, back under the ceiling
+        sh(["ffmpeg", "-v", "error", "-y", "-i", str(raw), "-af", f"{af},volume={trim:.3f}dB", "-c:a", "pcm_s24le",
+            str(final)])
+        after = measure(final)
+    short = round(max(0.0, target - after["I"]), 2) if tp_limited and after["I"] is not None else 0.0
+    (RENDER / "loudness.json").write_text(json.dumps({
+        "before": m, "gain_db": round(gain + extra + trim, 2), "after": after, "target": target, "ceiling": ceiling,
+        "tp_limited_shortfall_lu": short, "limiter_db": round(extra + trim, 2) if extra > 0 else 0.0}, indent=1))
+    print(f"  audio: {m} -> gain {gain + extra + trim:+.2f} dB{' (limiter)' if extra > 0 else ''} -> {after}")
+    if short >= 1.0:
+        print(f"  ! WARNING: loudness {after['I']} LUFS is {short:.1f} LU below the {target:g} LUFS target: the "
+              f"{ceiling:g} dBTP ceiling caps the gain (peak-to-loudness ratio {m['TP'] - m['I']:.1f} dB).  Accept "
+              f"it (dynamics untouched), lower loudness.target_lufs (e.g. -16 for recitation), or opt in to "
+              f"loudness.max_limiter_db.")
     return final
+
+
+def _analysis_for(src: Path, dur: float | None) -> dict | None:
+    """work/audio/<stem>.json from audio_analysis.py, if it exists and describes this very file."""
+    p = WORK / "audio" / f"{src.stem.replace(' ', '_')}.json"
+    if not p.exists():
+        return None
+    try:
+        aj = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return None
+    if aj.get("file") and abspath(aj["file"]).resolve() != src.resolve():
+        print(f"  ! {p.name} describes {aj['file']}, not {src}: phrase check skipped")
+        return None
+    if dur and aj.get("duration") and abs(float(aj["duration"]) - dur) > 0.5:
+        print(f"  ! {p.name} looks stale ({aj['duration']}s vs {dur}s): phrase check skipped, re-run audio_analysis.py")
+        return None
+    return aj
+
+
+def check_audio(edl: dict, total: float) -> dict | None:
+    """Validate the music and every ambience source BEFORE any segment is rendered.  Returns the music
+    span {"file", "in", "end"} in source-file seconds (end = in + reel duration), or None."""
+    tol = 0.5 / float(edl.get("fps", 30))
+    problems: list[str] = []
+
+    def audio_dur(f: str, what: str) -> float | None:
+        p = abspath(f)
+        if not p.is_file():
+            problems.append(f"{what} {f}: file not found")
+            return None
+        try:
+            info = describe(p)
+        except subprocess.CalledProcessError:
+            problems.append(f"{what} {f}: ffprobe cannot read it")
+            return None
+        if not info.get("audio"):
+            problems.append(f"{what} {f}: no audio stream (time-lapse / screen recording?): remove it or use "
+                            f"another clip")
+            return None
+        return float(info["audio"]["duration"] or info["duration"] or 0) or None
+
+    span = None
+    a = edl.get("music")
+    if a:
+        src = abspath(a["file"])
+        dur = audio_dur(a["file"], "music")
+        m_in = float(a.get("in", 0.0))
+        end = m_in + total
+        span = {"file": str(src), "in": m_in, "end": round(end, 4)}
+        aj = _analysis_for(src, dur) if dur else None
+        if aj and aj.get("duration"):
+            dur = float(aj["duration"])                    # decoded length: exact even for VBR MP3
+        if m_in < 0:
+            problems.append(f"music.in {m_in} is negative")
+        if dur and end > dur + tol:
+            problems.append(f"music runs past the end of {a['file']}: in {m_in:.3f} + reel {total:.3f}s = {end:.3f}s "
+                            f"> track {dur:.3f}s (the last {end - dur:.2f}s would be silence): set music.in "
+                            f"<= {dur - total:.3f} or shorten the edit")
+        if a.get("out") is not None and abs(float(a["out"]) - m_in - total) > tol:
+            ex = float(a["out"]) - m_in
+            problems.append(f"music.out - music.in = {ex:.3f}s but the reel is {total:.3f}s: change the shot "
+                            f"durations by {ex - total:+.3f}s, or move music.in / music.out")
+        inside = [p for p in (aj or {}).get("phrases", []) if p[0] + 0.05 < end < p[1] - 0.05]
+        if inside:
+            ends = sorted(float(p[1]) for p in aj["phrases"] if p[1] > m_in)
+            near = [e for e in ends if e <= end][-1:] + [e for e in ends if e > end][:1]
+            opts = " | ".join(f"phrase end {e:.3f}s = reel {e - m_in:.3f}s ({e - end:+.3f}s) or music.in {e - total:.3f}"
+                              for e in near)
+            msg = (f"music ends at {end:.3f}s, inside the phrase {inside[0][0]:.3f}-{inside[0][1]:.3f}s of "
+                   f"{src.name} (cut mid-phrase).  Nearest: {opts}")
+            if a.get("allow_mid_phrase"):
+                print(f"  ! WARNING (music.allow_mid_phrase): {msg}")
+            else:
+                problems.append(msg + "; or set music.allow_mid_phrase: true")
+    for i, amb in enumerate(edl.get("ambience") or []):
+        what = f"ambience[{i}]"
+        dur = audio_dur(amb.get("file", ""), what)
+        s_in, d, at = float(amb.get("src_in", 0)), float(amb.get("dur", 0) or 0), float(amb.get("at", 0))
+        if d <= 0:
+            problems.append(f"{what}: 'dur' must be > 0")
+        if s_in < 0:
+            problems.append(f"{what}: src_in {s_in} is negative")
+        if dur and s_in + d > dur + tol:
+            problems.append(f"{what} {amb['file']}: src_in {s_in:.3f} + dur {d:.3f} = {s_in + d:.3f}s runs past "
+                            f"its audio ({dur:.3f}s)")
+        if not 0 <= at < total:
+            problems.append(f"{what}: at {at} is outside the reel (0-{total:.3f}s)")
+        elif at + d > total + tol:
+            print(f"  ! {what}: at {at:.3f} + dur {d:.3f} ends {at + d - total:.2f}s after the reel (fade-out cut)")
+    for p in problems:
+        print(f"  ! {p}")
+    if problems:
+        raise SystemExit("fix the audio in the EDL (checked before anything is rendered)")
+    return span
 
 
 # ------------------------------------------------------------------ assembly + export
@@ -517,8 +732,11 @@ def assemble(edl: dict, tl: dict, segs: list[Path], ass: Path, audio: Path, out_
         post.append(f"fade=t=out:st={tl['total'] - d:.5f}:d={d:.5f}")
     if (deliver_w, deliver_h) != (out_w, out_h):
         post.append(f"zscale=w={deliver_w}:h={deliver_h}:filter=spline36")
-    post.append(f"ass={esc(ass)}:fontsdir={esc(FONTS)}")
-    post.append("zscale=dither=error_diffusion,format=yuv420p")
+    # Titles are drawn in R'G'B' (FFmpeg 6.1's ass filter would convert ASS colours with BT.601 into this
+    # BT.709 video and ignores 'YCbCr Matrix'), then converted once to BT.709 limited 4:2:0 with dither.
+    post.append("zscale=matrixin=709:rangein=limited:primariesin=709:transferin=709,format=gbrp10le,"
+                f"ass={esc(ass)}:fontsdir={esc(FONTS)}")
+    post.append("zscale=matrix=709:range=limited:primaries=709:transfer=709:dither=error_diffusion,format=yuv420p")
     post.append("setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv")
     fc.append(f"{acc}{','.join(post)}[vout]")
     a_idx = len(segs)
@@ -568,6 +786,12 @@ def main() -> int:
     seg_w, seg_h = (master if master else (out_w, out_h))
     look = colormod.look_from_dict(edl.get("look"))
     RENDER.mkdir(parents=True, exist_ok=True)
+    # audio sources and title fonts are validated now, not after minutes of segment rendering
+    music_span, ass = None, None
+    if not args.only_shot:
+        music_span = check_audio(edl, tl["total"])
+        ass = build_ass(edl, RENDER / "titles.ass")
+        check_fonts(ass)
     segs = []
     for r in tl["shots"]:
         if args.only_shot and r["id"] != args.only_shot:
@@ -584,19 +808,23 @@ def main() -> int:
         print(f"      retime: {r['retime']['note']} -> {r['retime']['mode']}")
     if args.only_shot:
         return 0
+    name = args.out or edl.get("export", {}).get("name", "Madinah_Final_Reel.mp4")
+    mname = edl.get("export", {}).get("master_name", "Madinah_Master_2160x3840.mp4")
+    final_path = OUT / name
+    master_path = OUT / mname if master and not args.draft else None
     timeline = {"fps": tl["fps"], "total": tl["total"], "total_frames": tl["total_frames"], "shots": [
         {k: v for k, v in r.items() if k not in ("clip",)} | {"T": r["T_frames"] / tl["fps"],
                                                               "file": r["shot"]["file"]}
-        for r in tl["shots"]]}
+        for r in tl["shots"]],
+        # what this run exports (qc.py / run_all.sh check exactly these) and the music span used
+        "outputs": [str(final_path), str(master_path) if master_path else None],
+        "music": music_span}
     (RENDER / "timeline.json").write_text(json.dumps(timeline, indent=1, ensure_ascii=False, default=str))
-    ass = build_ass(edl, RENDER / "titles.ass")
-    audio = render_audio(edl, tl["total"])
-    name = args.out or edl.get("export", {}).get("name", "Madinah_Final_Reel.mp4")
-    final = assemble(edl, tl, segs, ass, audio, seg_w, seg_h, out_w, out_h, OUT / name, args.draft)
+    audio = render_audio(edl, tl["total"], check=False)
+    final = assemble(edl, tl, segs, ass, audio, seg_w, seg_h, out_w, out_h, final_path, args.draft)
     print(f"wrote {final.relative_to(REPO)}")
-    if master and not args.draft:
-        mname = edl.get("export", {}).get("master_name", "Madinah_Master_2160x3840.mp4")
-        m = assemble(edl, tl, segs, ass, audio, seg_w, seg_h, master[0], master[1], OUT / mname, False)
+    if master_path:
+        m = assemble(edl, tl, segs, ass, audio, seg_w, seg_h, master[0], master[1], master_path, False)
         print(f"wrote {m.relative_to(REPO)}")
     return 0
 
