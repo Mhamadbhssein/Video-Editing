@@ -215,7 +215,7 @@ def shot_lut(r: dict, look: colormod.Look) -> Path:
     grade = colormod.shot_grade_from_dict(r["shot"].get("grade"))
     pq_peak = float(r["shot"].get("hdr_peak_nits") or col.get("peak_nits") or 1000)
     hlg_lw = float(r["shot"].get("hlg_display_nits") or 1000)
-    key = json.dumps({"k": kind, "g": grade.__dict__, "l": look.__dict__,
+    key = json.dumps({"v": getattr(colormod, "LUT_VERSION", 1), "k": kind, "g": grade.__dict__, "l": look.__dict__,
                       "pq_peak": pq_peak, "hlg_lw": hlg_lw}, sort_keys=True)
     h = hashlib.sha1(key.encode()).hexdigest()[:10]
     path = RENDER / "luts" / f"{r['id']}_{h}.cube"
