@@ -1,0 +1,52 @@
+{
+  "_doc": "Copy to edit/edl.json once the footage has been reviewed. Times are seconds. Paths are relative to the repo root. Every value here is a creative decision; tools/render.py executes it exactly.",
+  "title": "المدينة المنوّرة",
+  "fps": 30,
+  "size": [1080, 1920],
+  "master_size": null,
+  "_master_size_doc": "[2160, 3840] only when every chosen shot is vertical 4K (inventory: supports_2160x3840_master)",
+
+  "look": {
+    "contrast": 0.14, "pivot": 0.18, "knee": 0.62,
+    "warmth": 0.035, "shadow_tint": 0.0,
+    "saturation": 1.06, "vibrance": 0.12, "skin_protect": 0.7, "black_floor": 0.0004
+  },
+
+  "music": {"file": "audio/TRACK.m4a", "in": 0.0, "fade_in": 0.0, "fade_out": 2.5, "gain_db": 0, "fade_curve": "qsin"},
+  "ambience": [
+    {"file": "footage/CLIP.MOV", "src_in": 0.0, "at": 0.0, "dur": 4.0, "gain_db": -20, "fade_in": 0.8, "fade_out": 1.2, "highpass": 90, "lowpass": 14000}
+  ],
+  "loudness": {"target_lufs": -14, "true_peak_ceiling": -1.5},
+
+  "shots": [
+    {
+      "id": "01_arrival",
+      "file": "footage/CLIP.MOV",
+      "src_in": 0.0,
+      "dur": 3.0,
+      "speed": 1.0,
+      "_speed_doc": "0.7-0.85 for gentle slow motion from >=50 fps sources; keep 1.0 for 24/25/30 fps sources",
+      "retime": "auto",
+      "_retime_doc": "auto | frames (real frames only) | blend (even cadence for non-integer steps) | mci (motion interpolation: inspect!)",
+      "frame": {"cx": 0.5, "cy": 0.5, "zoom": 1.0, "end": {"zoom": 1.04}, "ease": "inout"},
+      "_frame_doc": "9:16 window centre (0-1 of the display-oriented source), zoom >= 1; optional 'end' animates a sub-pixel push/pan",
+      "grade": {"exposure": 0.0, "temperature": 0.0, "tint": 0.0, "saturation": 1.0, "contrast": 0.0, "highlights": 0.0, "black_crush": 0.0, "black_lift": 0.0},
+      "stabilize": false,
+      "_stabilize_doc": "false | {\"smoothing\": 18, \"zoom\": 4} (vid.stab two-pass; zoom % hides borders)",
+      "denoise": 0.0,
+      "sharpen": 0.0,
+      "transition": {"type": "cut"},
+      "_transition_doc": "INTO this shot: cut | dissolve {dur} | dip {dur} (through black); centred on the cut point"
+    }
+  ],
+
+  "titles": [
+    {"text": "المدينة المنوّرة", "style": "title", "start": 0.4, "end": 3.6, "x": 540, "y": 700,
+     "fade_in": 0.9, "fade_out": 0.7, "drift": 10, "blur_from": 3, "blur": 0.6}
+  ],
+  "typography": {"styles": {}},
+  "_typography_doc": "styles: title (Amiri Bold), line / small (IBM Plex Sans Arabic Light). Keep text inside x 90-910, y 250-1480 (Instagram UI). Never use \\fsp letter-spacing on Arabic.",
+
+  "end": {"fade_to_black": 0.0},
+  "export": {"name": "Madinah_Final_Reel.mp4", "master_name": "Madinah_Master_2160x3840.mp4", "crf": 16, "maxrate": "25M"}
+}

@@ -1,0 +1,12 @@
+# Original camera files and audio travel through Git LFS (GitHub rejects plain files > 100 MB).
+footage/**/*.[mM][oO][vV] filter=lfs diff=lfs merge=lfs -text
+footage/**/*.[mM][pP]4 filter=lfs diff=lfs merge=lfs -text
+footage/**/*.[mM]4[vV] filter=lfs diff=lfs merge=lfs -text
+footage/**/*.[hH][eE][vV][cC] filter=lfs diff=lfs merge=lfs -text
+footage/**/*.[mM][kK][vV] filter=lfs diff=lfs merge=lfs -text
+audio/**/*.[mM]4[aA] filter=lfs diff=lfs merge=lfs -text
+audio/**/*.[mM][pP]3 filter=lfs diff=lfs merge=lfs -text
+audio/**/*.[wW][aA][vV] filter=lfs diff=lfs merge=lfs -text
+audio/**/*.[aA][aA][cC] filter=lfs diff=lfs merge=lfs -text
+audio/**/*.[fF][lL][aA][cC] filter=lfs diff=lfs merge=lfs -text
+output/*Master*.mp4 filter=lfs diff=lfs merge=lfs -text
