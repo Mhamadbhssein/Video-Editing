@@ -119,12 +119,17 @@ def soft_gamut_clip(rgb: np.ndarray, luma=LUMA_709) -> np.ndarray:
 
 
 # ---------------------------------------------------------------- input transforms
-def input_to_working(rgb_signal: np.ndarray, kind: str, hdr_peak_nits: float = 1000.0) -> np.ndarray:
-    """Camera R'G'B' in [0,1] -> SDR display-linear BT.709 working space (unclipped above 1)."""
+def input_to_working(rgb_signal: np.ndarray, kind: str, hdr_peak_nits: float = 1000.0,
+                     hlg_display_nits: float = 1000.0) -> np.ndarray:
+    """Camera R'G'B' in [0,1] -> SDR display-linear BT.709 working space (unclipped above 1).
+
+    hdr_peak_nits: PQ content peak (MaxCLL / mastering max), used only to place the HDR tone-map.
+    hlg_display_nits: nominal HLG display peak Lw for the BT.2100 OOTF (BT.2408 reference = 1000).
+    """
     if kind == "sdr709":
         return np.power(np.clip(rgb_signal, 0.0, 1.0), SDR_GAMMA)
     if kind == "hlg":
-        nits = hlg_to_display_nits(rgb_signal, hdr_peak_nits)
+        nits = hlg_to_display_nits(rgb_signal, hlg_display_nits)
     elif kind == "pq":
         nits = pq_to_display_nits(rgb_signal)
     else:
@@ -248,17 +253,21 @@ def working_to_output(lin: np.ndarray) -> np.ndarray:
 
 # ---------------------------------------------------------------- LUT generation
 def build_lut(kind: str, shot: ShotGrade | None = None, look: Look | None = None,
-              size: int = 65, hdr_peak_nits: float = 1000.0, neutral: bool = False) -> np.ndarray:
-    """Return a (size, size, size, 3) LUT indexed [b, g, r] (cube file order)."""
+              size: int = 65, hdr_peak_nits: float = 1000.0, neutral: bool = False,
+              hlg_display_nits: float = 1000.0) -> np.ndarray:
+    """Return a (size, size, size, 3) LUT indexed [b, g, r] (cube file order).
+
+    hdr_peak_nits applies to PQ input only; hlg_display_nits to HLG input only."""
     shot = shot or ShotGrade()
     look = look or Look()
     axis = np.linspace(0.0, 1.0, size)
     b, g, r = np.meshgrid(axis, axis, axis, indexing="ij")
     rgb = np.stack([r, g, b], axis=-1).reshape(-1, 3)
-    lin = input_to_working(rgb, kind, hdr_peak_nits)
+    lin = input_to_working(rgb, kind, hdr_peak_nits, hlg_display_nits)
     if kind != "sdr709":
+        peak = hlg_display_nits if kind == "hlg" else hdr_peak_nits
         # HDR: compress highlights above the knee into SDR range before grading
-        lin = tone_map_rgb(lin, knee=HDR_KNEE, x_max=(hdr_peak_nits / REF_WHITE_NITS) * REF_WHITE_LIN)
+        lin = tone_map_rgb(lin, knee=HDR_KNEE, x_max=(peak / REF_WHITE_NITS) * REF_WHITE_LIN)
     if not neutral:
         lin = apply_grade(lin, shot, look)
     out = working_to_output(lin)

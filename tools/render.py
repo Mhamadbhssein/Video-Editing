@@ -176,12 +176,14 @@ def shot_lut(r: dict, look: colormod.Look) -> Path:
     if r["shot"].get("input_transform"):
         kind = r["shot"]["input_transform"]
     grade = colormod.shot_grade_from_dict(r["shot"].get("grade"))
+    pq_peak = float(r["shot"].get("hdr_peak_nits") or col.get("peak_nits") or 1000)
+    hlg_lw = float(r["shot"].get("hlg_display_nits") or 1000)
     key = json.dumps({"k": kind, "g": grade.__dict__, "l": look.__dict__,
-                      "peak": r["shot"].get("hdr_peak_nits", 1000)}, sort_keys=True)
+                      "pq_peak": pq_peak, "hlg_lw": hlg_lw}, sort_keys=True)
     h = hashlib.sha1(key.encode()).hexdigest()[:10]
     path = RENDER / "luts" / f"{r['id']}_{h}.cube"
     if not path.exists():
-        lut = colormod.build_lut(kind, grade, look, size=65, hdr_peak_nits=r["shot"].get("hdr_peak_nits", 1000))
+        lut = colormod.build_lut(kind, grade, look, size=65, hdr_peak_nits=pq_peak, hlg_display_nits=hlg_lw)
         colormod.write_cube(path, lut, f"{r['id']} {kind}")
     return path
 
