@@ -9,8 +9,10 @@
   "look": {
     "contrast": 0.14, "pivot": 0.18, "knee": 0.62,
     "warmth": 0.035, "shadow_tint": 0.0,
-    "saturation": 1.06, "vibrance": 0.12, "skin_protect": 0.7, "black_floor": 0.0004
+    "saturation": 1.06, "vibrance": 0.12, "skin_protect": 0.7, "black_floor": 0.0004,
+    "highlight_desat": 0.35
   },
+  "_look_doc": "The film's shared look, applied after each shot's grade. Highlights roll off once, keeping hue, and the shoulder is anchored on the grey axis, so white reaches 100 % in every shot. highlight_desat 0..1 is how far chroma moves toward the neutral of the same lightness near 100 % (0 keeps lamps and sky fully saturated).",
 
   "music": {"file": "audio/TRACK.m4a", "in": 0.0, "out": null, "fade_in": 0.0, "fade_out": 2.5, "gain_db": 0, "fade_curve": "qsin", "allow_mid_phrase": false},
   "_music_doc": "in = sample-accurate start in the track (a phrase start from work/audio/<track>.json). The music runs for the whole reel and ends at in + reel length; render.py stops before rendering if that is past the end of the track, or inside a recited/sung phrase of work/audio/<track>.json (it names the nearest phrase ends; allow_mid_phrase: true turns that into a warning). out (optional) = the planned end point: must equal in + reel length within half a frame. fade_in / fade_out in seconds; 0 = no fade at all.",
@@ -34,6 +36,7 @@
       "frame": {"cx": 0.5, "cy": 0.5, "zoom": 1.0, "end": {"zoom": 1.04}, "ease": "inout"},
       "_frame_doc": "9:16 window centre (0-1 of the display-oriented source), zoom >= 1; optional 'end' animates a sub-pixel push/pan",
       "grade": {"exposure": 0.0, "temperature": 0.0, "tint": 0.0, "saturation": 1.0, "contrast": 0.0, "highlights": 0.0, "black_crush": 0.0, "black_lift": 0.0},
+      "_grade_doc": "Per-shot matching in linear light: exposure (stops), temperature/tint (-1..1, ~0.1 = subtle), saturation multiplies the whole look saturation (0 = true black and white), contrast, highlights, black_crush, black_lift.",
       "hdr_peak_nits": null,
       "hlg_display_nits": null,
       "_hdr_doc": "null = automatic. hdr_peak_nits: PQ shots only (HDR10, Dolby Vision 8.1), the content peak (MaxCLL / mastering max) that places the highlight roll-off (default: the clip's peak_nits from inventory, else 1000). hlg_display_nits: HLG shots only, the display peak Lw of the BT.2100 HLG OOTF (default 1000 = BT.2408 reference; lower Lw = lower system gamma, relatively brighter mid-tones).",
