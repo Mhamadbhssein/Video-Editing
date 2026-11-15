@@ -54,8 +54,11 @@ tools/run_all.sh render    # 4-5: render + QC
    moments. Times are real source timestamps on the `src_in` axis (VFR-safe) and frames are picked exactly
    as the renderer picks them. It exits 1 if a clip fails to decode or comes out all black, and flags
    Dolby Vision profile 5 clips, whose preview colours are wrong. Needs FFmpeg ≥ 6.1.
-3. `audio_analysis.py` — waveform / spectrogram pages, EBU R128 loudness, tempo + beat grid,
-   pauses and phrase spans (never cut inside a recited or sung phrase), energy changes, ranked 30–45 s excerpts.
+3. `audio_analysis.py` — waveform / spectrogram pages, EBU R128 loudness (levels in true dBFS), tempo + beat
+   grid only when the beat is reliable (beatless recitation, nasheed or pads report "no reliable beat"),
+   pauses (breaths don't split them) and phrase spans (never cut inside a recited or sung phrase), energy
+   changes, ranked excerpts (30–45 s, or `--len SECONDS`) that start just before a phrase onset and end at a
+   real pause, on bar lines when there is a beat.
 4. `render.py` — preflight first (fonts actually used by libass, music length and phrase end, every ambience
    source), then per shot: frame-accurate in-point (coarse seek + trim, safe on open-GOP HEVC) → optional
    vid.stab → retime (real frames at normal speed; real frames or an even-cadence blend for 0.7–0.85× slow

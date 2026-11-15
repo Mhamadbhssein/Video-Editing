@@ -513,7 +513,8 @@ def render_audio(edl: dict, total: float, check: bool = True) -> Path:
     if a:
         m_in = float(a.get("in", 0.0))
         fo = min(max(0.0, float(a.get("fade_out", 2.0))), total)
-        fi = min(max(0.0, float(a.get("fade_in", 0.0))), total)
+        # never start on a step: excerpt in-points sit inside a pause, so a >= 10 ms ramp is inaudible
+        fi = min(max(0.01, float(a.get("fade_in", 0.0))), total)
         chain = excerpt(abspath(a["file"]), m_in, total) + [f"volume={a.get('gain_db', 0)}dB"]
         chain += fade("in", 0.0, fi, "qsin") + fade("out", total - fo, fo, a.get("fade_curve", "qsin"))
         fc.append(f"[{k}:a]{','.join(chain)}[m{k}]")

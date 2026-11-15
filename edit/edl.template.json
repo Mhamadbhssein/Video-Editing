@@ -14,7 +14,7 @@
   },
   "_look_doc": "The film's shared look, applied after each shot's grade. Highlights roll off once, keeping hue, and the shoulder is anchored on the grey axis, so white reaches 100 % in every shot. highlight_desat 0..1 is how far chroma moves toward the neutral of the same lightness near 100 % (0 keeps lamps and sky fully saturated).",
 
-  "music": {"file": "audio/TRACK.m4a", "in": 0.0, "out": null, "fade_in": 0.0, "fade_out": 2.5, "gain_db": 0, "fade_curve": "qsin", "allow_mid_phrase": false},
+  "music": {"file": "audio/TRACK.m4a", "in": 0.0, "out": null, "fade_in": 0.03, "fade_out": 2.5, "gain_db": 0, "fade_curve": "qsin", "allow_mid_phrase": false},
   "_music_doc": "in = sample-accurate start in the track (a phrase start from work/audio/<track>.json). The music runs for the whole reel and ends at in + reel length; render.py stops before rendering if that is past the end of the track, or inside a recited/sung phrase of work/audio/<track>.json (it names the nearest phrase ends; allow_mid_phrase: true turns that into a warning). out (optional) = the planned end point: must equal in + reel length within half a frame. fade_in / fade_out in seconds; 0 = no fade at all.",
   "ambience": [
     {"file": "footage/CLIP.MOV", "src_in": 0.0, "at": 0.0, "dur": 4.0, "gain_db": -20, "fade_in": 0.8, "fade_out": 1.2, "highpass": 90, "lowpass": 14000}
