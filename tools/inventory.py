@@ -5,7 +5,10 @@
 
 Writes work/inventory.json and work/inventory.md and prints a summary with
 recommendations (timeline frame rate, HDR handling, whether a 4K master is justified).
-Original files are only ever read.
+Files are classified by their streams, not only their extension: an audio-only .mp4/.mov
+(e.g. a nasheed delivered that way) is listed under audio.  Unreadable files (including Git
+LFS pointers left by a clone without `git lfs pull`) are reported with the reason; the exit
+code is 2 when nothing readable was found.  Original files are only ever read.
 """
 from __future__ import annotations
 
@@ -15,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from mediainfo import REPO, describe, find_media  # noqa: E402
+from mediainfo import REPO, describe, find_media, is_lfs_pointer  # noqa: E402
 
 WORK = REPO / "work"
 
@@ -32,16 +35,30 @@ def main(argv: list[str]) -> int:
     media = find_media(roots)
     WORK.mkdir(exist_ok=True)
     items = {"video": [], "audio": [], "image": [str(p) for p in media["image"]]}
+
+    def broken(p: Path, err: str) -> dict:
+        return {"path": str(p), "error": err, "lfs_pointer": is_lfs_pointer(p)}
+
     for p in media["video"]:
         try:
-            items["video"].append(describe(p))
+            d = describe(p)
         except Exception as e:  # keep going; report broken files
-            items["video"].append({"path": str(p), "error": str(e)})
+            items["video"].append(broken(p, str(e)))
+            continue
+        if d.get("video"):
+            items["video"].append(d)
+        elif d.get("audio"):    # e.g. a nasheed/recitation delivered as .mp4/.mov: it is a music track
+            d["note"] = "audio-only file in a video container"
+            items["audio"].append(d)
+        else:
+            items["video"].append(broken(p, "no video or audio stream"))
     for p in media["audio"]:
         try:
-            items["audio"].append(describe(p))
+            d = describe(p)
         except Exception as e:
-            items["audio"].append({"path": str(p), "error": str(e)})
+            items["audio"].append(broken(p, str(e)))
+            continue
+        items["audio"].append(d if d.get("audio") else broken(p, "no audio stream"))
 
     vids = [v for v in items["video"] if v.get("video")]
     rec: dict = {}
@@ -69,9 +86,13 @@ def main(argv: list[str]) -> int:
     lines = ["# Media inventory", "", "## Video", "",
              "| file | dur s | display | orient | fps | VFR | codec | bit | colour | HDR→SDR | audio |",
              "|---|---|---|---|---|---|---|---|---|---|---|"]
+
+    def cell(t: str) -> str:
+        return " / ".join(str(t).split("\n")).replace("|", "\\|")
+
     for v in items["video"]:
         if "error" in v:
-            lines.append(f"| {v['path']} | ERROR: {v['error'][:60]} |||||||||")
+            lines.append(f"| {v['path']} | ERROR: {cell(v['error'])} |||||||||")
             continue
         vv = v["video"]
         c = vv["color"]
@@ -84,18 +105,29 @@ def main(argv: list[str]) -> int:
     lines += ["", "## Audio", "", "| file | dur s | codec | ch | rate | kbps |", "|---|---|---|---|---|---|"]
     for v in items["audio"]:
         if "error" in v:
-            lines.append(f"| {v['path']} | ERROR |||||")
+            lines.append(f"| {v['path']} | ERROR: {cell(v['error'])} |||||")
             continue
         a = v.get("audio") or {}
-        lines.append(f"| {v['path']} | {v['duration']:.2f} | {a.get('codec')} | {a.get('channels')} | "
+        note = f" ({v['note']})" if v.get("note") else ""
+        lines.append(f"| {v['path']}{note} | {v['duration']:.2f} | {a.get('codec')} | {a.get('channels')} | "
                      f"{a.get('sample_rate')} | {a.get('bitrate_kbps')} |")
     if items["image"]:
         lines += ["", "## Stills (not used in motion edit unless chosen)", ""] + [f"- {p}" for p in items["image"]]
     lines += ["", "## Recommendations", "", "```json", json.dumps(rec, indent=2, ensure_ascii=False), "```", ""]
     (WORK / "inventory.md").write_text("\n".join(lines))
     print("\n".join(lines))
-    if not items["video"] and not items["audio"]:
-        print("\nNo footage or audio found. Put originals in footage/ and audio/ (see README).", file=sys.stderr)
+    errors = [v for v in items["video"] + items["audio"] if "error" in v]
+    if errors:
+        print(f"\nWARNING: {len(errors)} file(s) could not be read:", file=sys.stderr)
+        for v in errors:
+            print(f"  {v['path']}: {v['error']}", file=sys.stderr)
+        n_lfs = sum(1 for v in errors if v.get("lfs_pointer"))
+        if n_lfs:
+            print(f"  -> {n_lfs} of them are Git LFS pointers (the clone has no media objects): "
+                  "run `git lfs install && git lfs pull`, then re-run this step.", file=sys.stderr)
+    if not any("error" not in v for v in items["video"] + items["audio"]):
+        print("\nNo readable footage or audio found. Put originals in footage/ and audio/ (see README).",
+              file=sys.stderr)
         return 2
     return 0
 
