@@ -32,7 +32,7 @@ Pick one:
 |---|---|
 | `footage/`, `audio/` | your originals (read-only for the tools) |
 | `assets/fonts/` | Amiri, IBM Plex Sans Arabic, Noto Naskh Arabic (+ OFL licences) |
-| `tools/` | the pipeline (Python 3 + numpy + Pillow + FFmpeg) |
+| `tools/` | the pipeline (Python 3 + numpy + Pillow + FFmpeg; `ffutil.py` = shared filtergraph escaping + exact NTSC rates) |
 | `edit/edl.json` | **the edit** (template: `edit/edl.template.json`), Arabic line candidates in `edit/lines_bank.md` |
 | `output/` | `Madinah_Final_Reel.mp4` (+ `Madinah_Master_2160x3840.mp4` when the footage supports it) |
 | `work/` | regenerated scratch: contact sheets, filmstrips, proxies, audio pages, segments, QC sheets |
@@ -45,19 +45,29 @@ tools/run_all.sh study     # 1-3: inventory, footage review, audio analysis
 tools/run_all.sh render    # 4-5: render + QC
 ```
 
-1. `inventory.py` — resolution, rotation, orientation, fps / VFR, codec, bit depth, primaries/transfer/matrix,
-   HLG / PQ / Dolby Vision detection, audio streams → `work/inventory.md`.
+1. `inventory.py` — resolution, rotation, orientation, fps / VFR (edit-list aware), codec, bit depth,
+   primaries/transfer/matrix, HLG / PQ (+ MaxCLL / mastering peak) / Dolby Vision detection, audio streams
+   → `work/inventory.md`. Git LFS pointer files are reported as such (`git lfs pull`), audio-only files in a
+   video container are treated as audio, and the step stops if no readable media is found.
 2. `review.py` — per clip: contact sheet, dense 4 fps filmstrips, 540 px SDR proxy, metrics
    (exposure, clipped highlights, sharpness, camera speed, jitter) and suggested strongest moments.
 3. `audio_analysis.py` — waveform / spectrogram pages, EBU R128 loudness, tempo + beat grid,
    pauses and phrase spans (never cut inside a recited or sung phrase), energy changes, ranked 30–45 s excerpts.
-4. `render.py` — per shot: accurate seek → optional vid.stab → 9:16 reframe (static crop or sub-pixel push)
-   → spline36 resize → light denoise → retime (real frames / even-cadence blend / motion interpolation)
-   → **one 3D LUT per shot** (HDR→SDR BT.2100/BT.2408 conversion + exposure/white balance + the film's look)
-   → ProRes 422 HQ segment; then frame-exact cuts and centred dissolves, Arabic titles (libass +
-   HarfBuzz + FriBidi), H.264 High / yuv420p / BT.709 / CFR / +faststart, AAC-LC 48 kHz 320 kb/s.
-   Audio: music excerpt + optional clip ambience, fades, two-pass loudness to −14 LUFS with a
-   −1.5 dBTP ceiling using gain only (no limiter, no compression, no pitch change).
+4. `render.py` — preflight first (fonts actually used by libass, music length and phrase end, every ambience
+   source), then per shot: frame-accurate in-point (coarse seek + trim, safe on open-GOP HEVC) → optional
+   vid.stab → retime (real frames at normal speed; real frames or an even-cadence blend for 0.7–0.85× slow
+   motion; motion interpolation only on request) → 9:16 reframe (static crop or a sub-pixel push timed in
+   output frames) → spline36 resize → light denoise → optional sharpening → **one 3D LUT per shot** (HDR→SDR BT.2100/BT.2408
+   conversion, exposure/white balance and the film's look graded on the full HDR range, then one
+   hue-preserving highlight roll-off; on 10-bit sources it runs before any 8-bit-only filter, so no banding)
+   → ProRes 422 HQ segment. Then frame-exact cuts, centred dissolves and dips through black on an exact frame
+   clock, Arabic titles drawn in RGB (libass + HarfBuzz + FriBidi, automatic RTL, soft halo for legibility),
+   H.264 High (level chosen from size × fps) / yuv420p / BT.709 / CFR / +faststart / no edit lists,
+   AAC-LC 48 kHz, 320 kb/s target.
+   Audio: sample-accurate music excerpt + optional clip ambience, fades, two-pass loudness to −14 LUFS with a
+   −1.5 dBTP ceiling using gain only (no limiter, no compression, no pitch change). If the ceiling stops the
+   gain short, the shortfall is reported; an oversampled limiter is available only as an opt-in
+   (`loudness.max_limiter_db`).
 5. `qc.py` — delivery spec, black/frozen/duplicated frames, unexpected cuts, loudness/true peak,
    silences, title boxes vs. the Instagram-safe area, plus inspection sheets in `work/qc/`.
 
